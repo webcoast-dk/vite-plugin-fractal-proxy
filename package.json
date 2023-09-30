@@ -1,0 +1,14 @@
+{
+    "name": "@webcoast/vite-plugin-fractal-proxy",
+    "version": "1.0.0",
+    "type": "commonjs",
+    "keywords": ["vite-plugin", "fractal", "proxy", "styleguide"],
+    "author": {
+        "name": "Thorben Nissen",
+        "email": "thorben@webcoast.dk"
+    },
+    "main": "ViteFractalProxyPlugin.js",
+    "dependencies": {
+        "@frctl/fractal": "^1.5.15"
+    }
+}
