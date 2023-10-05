@@ -1,43 +1,47 @@
-const path = require('path')
+import path from 'path'
+import fractal from '@frctl/fractal'
+import copy from 'recursive-copy'
+import fs from 'fs/promises'
+
 /**
  * @param options {PluginOptions}
  * @returns {{config(*, {command: *}): (*|undefined)}|any}
  * @constructor
  */
 const ViteFractalProxyPlugin = (options) => {
-    let fractal
+    let fractalInstance
     let resolvedConfig
     let bundles = []
 
     /**
      * @param options {PluginOptions}
      */
-    const createFractalInstance = (options) => {
-        const packageJson = require(process.cwd() + '/package.json')
-        fractal = require('@frctl/fractal').create();
-        fractal.set('project.title', options.title || packageJson.name)
-        fractal.components.set('path', options.components.path)
-        if (fractal.components.engine || null) {
-            fractal.components.engine(options.components.engine)
-            fractal.components.set('ext', options.components.ext)
+    const createFractalInstance = async (options) => {
+        const packageJson = await import(process.cwd() + '/package.json', {assert: {type: 'json'}})
+        fractalInstance = fractal.create();
+        fractalInstance.set('project.title', options.title || packageJson.name)
+        fractalInstance.components.set('path', options.components.path)
+        if (fractalInstance.components.engine || null) {
+            fractalInstance.components.engine(options.components.engine)
+            fractalInstance.components.set('ext', options.components.ext)
         }
         if (options.docs?.path || null) {
-            fractal.docs.set('path', options.docs.path)
-            if (fractal.docs.engine || null) {
-                fractal.docs.engine(options.components.engine)
-                fractal.docs.set('ext', options.components.ext)
+            fractalInstance.docs.set('path', options.docs.path)
+            if (fractalInstance.docs.engine || null) {
+                fractalInstance.docs.engine(options.components.engine)
+                fractalInstance.docs.set('ext', options.components.ext)
             }
         }
     }
     return {
-        config(config, { command, mode }) {
+        async config(config, { command, mode }) {
             if (command === 'serve') {
-                createFractalInstance(options)
-                const server = fractal.web.server({
+                await createFractalInstance(options)
+                const server = fractalInstance.web.server({
                     sync: true
                 })
                 server.on('error', err => {
-                    fractal.cli.console.error(err)
+                    fractalInstance.cli.console.error(err)
                 })
                 return server.start().then(() => {
                     return {
@@ -52,7 +56,7 @@ const ViteFractalProxyPlugin = (options) => {
                     }
                 })
             } else if (command === 'build' && mode === 'preview') {
-                createFractalInstance(options)
+                await createFractalInstance(options)
             }
         },
 
@@ -60,26 +64,15 @@ const ViteFractalProxyPlugin = (options) => {
             resolvedConfig = config
             if (config.command === 'serve') {
                 const root = config.root
-                const jsFiles = [
-                    {
-                        url: '/@vite/client',
-                        type: 'module'
-                    }
-                ]
+                const jsFiles = ['/@vite/client']
                 if (typeof config.build.rollupOptions.input === 'string') {
-                    jsFiles.push({
-                        url: config.build.rollupOptions.input.replace(root, ''),
-                        type: 'module'
-                    })
+                    jsFiles.push(config.build.rollupOptions.input.replace(root, ''))
                 } else {
                     for (const file of config.build.rollupOptions.input) {
-                        jsFiles.push({
-                            url: file.replace(root, ''),
-                            type: 'module'
-                        })
+                        jsFiles.push(file.replace(root, ''))
                     }
                 }
-                fractal.components.set('jsFiles', jsFiles)
+                fractalInstance.components.set('jsFiles', jsFiles)
             }
         },
 
@@ -93,53 +86,37 @@ const ViteFractalProxyPlugin = (options) => {
             }
         },
 
-        writeBundle() {
+        async writeBundle() {
             if (resolvedConfig.command === 'build' && resolvedConfig.mode === 'preview') {
                 const jsFiles = []
                 const cssFiles = []
-                const packageJson = require(process.cwd() + '/package.json')
-                const packageType = packageJson.type || 'commonjs'
-                const mjsExt = packageType === 'module' ? 'js' : 'mjs'
-                const cjsExt = packageType === 'commonjs' ? 'js' : 'cjs'
-                const hasModule = resolvedConfig.build.lib.formats.includes('es')
-                const mjsRegex = new RegExp(`\\.${mjsExt}$`)
-                const cjsRegex = new RegExp(`\\.${cjsExt}$`)
 
                 for (const bundle of bundles) {
-                    if (mjsRegex.test(bundle.fileName)) {
-                        jsFiles.push({
-                            url: '/' + bundle.fileName,
-                            type: 'module'
-                        })
-                    } else if (cjsRegex.test(bundle.fileName)) {
-                        if (hasModule) {
-                            jsFiles.push({
-                                url: '/' + bundle.fileName,
-                                nomodule: true
-                            })
-                        } else {
-                            jsFiles.push({
-                                url: '/' + bundle.fileName
-                            })
-                        }
+                    if (bundle.fileName.match(/\.js$/)) {
+                        jsFiles.push(resolvedConfig.base + bundle.fileName)
                     } else if (bundle.fileName.match(/\.css$/)) {
-                        cssFiles.push({
-                            url: '/' + bundle.fileName
-                        })
+                        cssFiles.push(resolvedConfig.base + bundle.fileName)
                     }
                 }
 
-                fractal.components.set('jsFiles', jsFiles)
-                fractal.components.set('cssFiles', cssFiles)
+                fractalInstance.components.set('jsFiles', jsFiles)
+                fractalInstance.components.set('cssFiles', cssFiles)
 
-                fractal.web.set('builder.dest', options.exportDir || path.resolve(resolvedConfig.root, 'static'));
+                fractalInstance.web.set('builder.dest', options.exportDir || path.resolve(resolvedConfig.root, 'static'));
 
-                return fractal.web.builder().build().then(() => {
-                    console.info('Fractal has been exported as static HTML')
+                return fractalInstance.web.builder().build().then(() => {
+                    console.info('\x1b[32m\u2713 created static export of Fractal\x1b[0m')
+
+                    return copy(path.resolve(resolvedConfig.root, resolvedConfig.build.outDir), options.exportDir || path.resolve(resolvedConfig.root, 'static'), {
+                        dot: true,
+                        expand: true
+                    }).then(() => {
+                        return fs.rm(path.resolve(resolvedConfig.root, resolvedConfig.build.outDir), {recursive: true})
+                    })
                 })
             }
         }
     }
 }
 
-module.exports = ViteFractalProxyPlugin
+export default ViteFractalProxyPlugin
