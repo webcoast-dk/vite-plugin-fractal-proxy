@@ -115,6 +115,10 @@ const ViteFractalProxyPlugin = (options) => {
                     })
                 })
             }
+        },
+
+        fractal() {
+            return fractalInstance
         }
     }
 }
