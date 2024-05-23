@@ -3,13 +3,15 @@ import fractal from '@frctl/fractal'
 import copy from 'recursive-copy'
 import fs from 'fs/promises'
 
+let fractalInstance
+let fractalServer
+
 /**
  * @param options {PluginOptions}
  * @returns {{config(*, {command: *}): (*|undefined)}|any}
  * @constructor
  */
 const ViteFractalProxyPlugin = (options) => {
-    let fractalInstance
     let resolvedConfig
     let bundles = []
 
@@ -36,19 +38,28 @@ const ViteFractalProxyPlugin = (options) => {
     return {
         async config(config, { command, mode }) {
             if (command === 'serve') {
-                await createFractalInstance(options)
-                const server = fractalInstance.web.server({
-                    sync: true
-                })
-                server.on('error', err => {
-                    fractalInstance.cli.console.error(err)
-                })
-                return server.start().then(() => {
+                if (!fractalInstance) {
+                    await createFractalInstance(options)
+                }
+
+                return (new Promise(resolve => {
+                    if (!fractalServer || !fractalServer.isListening) {
+                        fractalServer = fractalInstance.web.server({
+                            sync: true
+                        })
+                        fractalServer.on('error', err => {
+                            fractalInstance.cli.console.error(err)
+                        })
+                        fractalServer.start().then(resolve)
+                    }
+
+                    resolve()
+                })).then(() => {
                     return {
                         server: {
                             proxy: {
                                 '^/($|index.html$|components/|docs/|themes/|browser-sync/)': {
-                                    target: server.url
+                                    target: fractalServer.url
                                 }
                             }
 
