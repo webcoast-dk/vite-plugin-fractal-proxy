@@ -50,7 +50,7 @@ const ViteFractalProxyPlugin = (options) => {
                         fractalServer.on('error', err => {
                             fractalInstance.cli.console.error(err)
                         })
-                        fractalServer.start().then(resolve)
+                        return fractalServer.start().then(resolve)
                     }
 
                     resolve()
