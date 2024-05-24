@@ -2,9 +2,7 @@ import path from 'path'
 import fractal from '@frctl/fractal'
 import copy from 'recursive-copy'
 import fs from 'fs/promises'
-
-let fractalInstance
-let fractalServer
+import getPort from 'get-port'
 
 /**
  * @param options {PluginOptions}
@@ -14,6 +12,8 @@ let fractalServer
 const ViteFractalProxyPlugin = (options) => {
     let resolvedConfig
     let bundles = []
+    let fractalInstance
+    let fractalServer
 
     /**
      * @param options {PluginOptions}
@@ -38,34 +38,28 @@ const ViteFractalProxyPlugin = (options) => {
     return {
         async config(config, { command, mode }) {
             if (command === 'serve') {
-                if (!fractalInstance) {
-                    await createFractalInstance(options)
-                }
-
-                return (new Promise(resolve => {
-                    if (!fractalServer || !fractalServer.isListening) {
-                        fractalServer = fractalInstance.web.server({
-                            sync: true
-                        })
-                        fractalServer.on('error', err => {
-                            fractalInstance.cli.console.error(err)
-                        })
-                        return fractalServer.start().then(resolve)
-                    }
-
-                    resolve()
-                })).then(() => {
-                    return {
-                        server: {
-                            proxy: {
-                                '^/($|index.html$|components/|docs/|themes/|browser-sync/)': {
-                                    target: fractalServer.url
-                                }
-                            }
-
-                        }
+                await createFractalInstance(options)
+                const syncPort = await getPort({port: getPort.makeRange(3000, 3010), ip: '127.0.0.1'})
+                const port = await getPort({port: getPort.makeRange(syncPort + 1, syncPort + 11), ip: '127.0.0.1'})
+                fractalServer = fractalInstance.web.server({
+                    port: port,
+                    sync: true,
+                    syncOptions: {
+                        ui: false,
+                        port: syncPort
                     }
                 })
+                await fractalServer.start()
+
+                return {
+                    server: {
+                        proxy: {
+                            '^/($|index.html$|components/|docs/|themes/|browser-sync/)': {
+                                target: fractalServer.url
+                            }
+                        }
+                    }
+                }
             } else if (command === 'build' && mode === 'preview') {
                 await createFractalInstance(options)
             }
@@ -124,6 +118,15 @@ const ViteFractalProxyPlugin = (options) => {
                     }).then(() => {
                         return fs.rm(path.resolve(resolvedConfig.root, resolvedConfig.build.outDir), {recursive: true})
                     })
+                })
+            }
+        },
+
+        async buildEnd() {
+            if (resolvedConfig.command === 'serve' && fractalServer) {
+                return new Promise(resolve => {
+                    fractalServer.once('stopped', resolve)
+                    fractalServer.stop()
                 })
             }
         },

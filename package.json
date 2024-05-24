@@ -15,6 +15,7 @@
     "main": "ViteFractalProxyPlugin.js",
     "dependencies": {
         "@frctl/fractal": "^1.5.15",
+        "get-port": "^7.1.0",
         "recursive-copy": "^2.0.14"
     }
 }
