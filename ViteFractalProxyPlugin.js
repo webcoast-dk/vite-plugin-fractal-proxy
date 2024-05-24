@@ -2,7 +2,7 @@ import path from 'path'
 import fractal from '@frctl/fractal'
 import copy from 'recursive-copy'
 import fs from 'fs/promises'
-import getPort from 'get-port'
+import getPort, { portNumbers } from 'get-port'
 
 /**
  * @param options {PluginOptions}
@@ -39,8 +39,8 @@ const ViteFractalProxyPlugin = (options) => {
         async config(config, { command, mode }) {
             if (command === 'serve') {
                 await createFractalInstance(options)
-                const syncPort = await getPort({port: getPort.makeRange(3000, 3010), ip: '127.0.0.1'})
-                const port = await getPort({port: getPort.makeRange(syncPort + 1, syncPort + 11), ip: '127.0.0.1'})
+                const syncPort = await getPort({port: portNumbers(3000, 3010), ip: '127.0.0.1'})
+                const port = await getPort({port: portNumbers(syncPort + 1, syncPort + 11), ip: '127.0.0.1'})
                 fractalServer = fractalInstance.web.server({
                     port: port,
                     sync: true,
