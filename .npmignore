@@ -1,3 +1,4 @@
 /.editorconfig
 /.idea
 /VitePluginFractalProxy.ts
+/tsconfig.json
