@@ -1,24 +1,19 @@
 import path from 'path'
-import fractal from '@frctl/fractal'
+import fractal, {Fractal, fractal as fractalNamespace} from '@frctl/fractal'
 import copy from 'recursive-copy'
 import fs from 'fs/promises'
 import getPort, { portNumbers } from 'get-port'
+import mergeWith from 'lodash.mergewith'
+import type { Plugin, ResolvedConfig } from 'vite'
+import type { PluginOptions } from './PluginOptions.d.ts'
 
-/**
- * @param options {PluginOptions}
- * @returns {{config(*, {command: *}): (*|undefined)}|any}
- * @constructor
- */
-const ViteFractalProxyPlugin = (options) => {
-    let resolvedConfig
+const VitePluginFractalProxy = (options: PluginOptions): Plugin => {
+    let resolvedConfig: ResolvedConfig
     let bundles = []
-    let fractalInstance
-    let fractalServer
+    let fractalInstance: Fractal
+    let fractalServer: fractalNamespace.web.Server
 
-    /**
-     * @param options {PluginOptions}
-     */
-    const createFractalInstance = async (options) => {
+    const createFractalInstance = async (options: PluginOptions) => {
         const packageJson = await import(process.cwd() + '/package.json', {assert: {type: 'json'}})
         fractalInstance = fractal.create();
         fractalInstance.set('project.title', options.title || packageJson.name)
@@ -29,26 +24,32 @@ const ViteFractalProxyPlugin = (options) => {
         }
         if (options.docs?.path || null) {
             fractalInstance.docs.set('path', options.docs.path)
-            if (fractalInstance.docs.engine || null) {
-                fractalInstance.docs.engine(options.components.engine)
+            if (options.docs.ext) {
                 fractalInstance.docs.set('ext', options.components.ext)
             }
+        }
+        if (options.theme || null) {
+            fractalInstance.web.theme('default', options.theme)
         }
     }
     return {
         async config(config, { command, mode }) {
             if (command === 'serve') {
                 await createFractalInstance(options)
-                const syncPort = await getPort({port: portNumbers(3000, 3010), ip: '127.0.0.1'})
-                const port = await getPort({port: portNumbers(syncPort + 1, syncPort + 11), ip: '127.0.0.1'})
-                fractalServer = fractalInstance.web.server({
-                    port: port,
+                const syncPort = await getPort({port: portNumbers(3000, 3010)})
+                const port = await getPort({port: portNumbers(syncPort + 1, syncPort + 11)})
+                const fractalConfig: fractalNamespace.web.WebServerConfig = mergeWith({
                     sync: true,
                     syncOptions: {
-                        ui: false,
+                        ui: false
+                    }
+                }, options.fractal, {
+                    port: port,
+                    syncOptions: {
                         port: syncPort
                     }
                 })
+                fractalServer = fractalInstance.web.server(fractalConfig)
                 await fractalServer.start()
 
                 return {
@@ -65,18 +66,19 @@ const ViteFractalProxyPlugin = (options) => {
             }
         },
 
-        configResolved(config) {
+        configResolved(config: ResolvedConfig) {
             resolvedConfig = config
             if (config.command === 'serve') {
                 const root = config.root
                 const jsFiles = ['/@vite/client']
                 if (typeof config.build.rollupOptions.input === 'string') {
                     jsFiles.push(config.build.rollupOptions.input.replace(root, ''))
-                } else {
+                } else if (Array.isArray(config.build.rollupOptions.input)) {
                     for (const file of config.build.rollupOptions.input) {
                         jsFiles.push(file.replace(root, ''))
                     }
                 }
+                // @ts-ignore
                 fractalInstance.components.set('jsFiles', jsFiles)
             }
         },
@@ -104,14 +106,17 @@ const ViteFractalProxyPlugin = (options) => {
                     }
                 }
 
+                // @ts-ignore
                 fractalInstance.components.set('jsFiles', jsFiles)
+                // @ts-ignore
                 fractalInstance.components.set('cssFiles', cssFiles)
 
                 fractalInstance.web.set('builder.dest', options.exportDir || path.resolve(resolvedConfig.root, 'static'));
 
-                return fractalInstance.web.builder().build().then(() => {
+                return fractalInstance.web.builder().start().then(() => {
                     console.info('\x1b[32m\u2713 created static export of Fractal\x1b[0m')
 
+                    // @ts-ignore
                     return copy(path.resolve(resolvedConfig.root, resolvedConfig.build.outDir), options.exportDir || path.resolve(resolvedConfig.root, 'static'), {
                         dot: true,
                         expand: true
@@ -131,10 +136,11 @@ const ViteFractalProxyPlugin = (options) => {
             }
         },
 
-        fractal() {
+        // @ts-ignore
+        fractal(): Fractal {
             return fractalInstance
         }
     }
 }
 
-export default ViteFractalProxyPlugin
+export { VitePluginFractalProxy as default, VitePluginFractalProxy }
